@@ -1,0 +1,14 @@
+# 依赖 / 构建产物
+node_modules/
+dist/
+*.tgz
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本地探针与临时产物
+probe/
+*.log

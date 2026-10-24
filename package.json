@@ -1,0 +1,50 @@
+{
+  "name": "dsh-font-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSH 字体工坊：把界面正文/代码字体、字号换成本地字体，预设画廊 + 自定义字体栈 + 实时预览 / A font studio for DeepSeek Harness",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "font",
+    "font-family",
+    "typography",
+    "ui"
+  ],
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WuYiBaiZhi/dsh-font-studio.git"
+  },
+  "homepage": "https://github.com/WuYiBaiZhi/dsh-font-studio#readme",
+  "bugs": {
+    "url": "https://github.com/WuYiBaiZhi/dsh-font-studio/issues"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/fonts.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
