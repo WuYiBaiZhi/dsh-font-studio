@@ -3,7 +3,8 @@
  *
  * 不依赖浏览器与 DSH：用一个 60 行的假 DOM 跑通客户端 bundle 的加载与 apply，
  * 验证 ①bundle 契约 ②字体栈清洗（防样式注入）③CSS 令牌覆写内容 ④字号优先走官方服务、
- * 无服务时退回 CSS 变量 ⑤localStorage 持久化读回。
+ * 无服务时退回 CSS 变量 ⑤localStorage 持久化读回 ⑥宿主字体路由 ⑦官方字体令牌接管
+ * ⑧预览区「我的字体」的增删与持久化。
  */
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -404,4 +405,109 @@ ownerInternals.store.state = { text: '"LXGW WenKai"', code: "", sizes: { text: n
 const ownerTree = renderTree(registered.Component);
 assert.ok(collectText(ownerTree).join(" ").includes("已接管"), "接管状态下要提示官方输入框不参与渲染");
 
-console.log("PASS  dsh-font-studio smoke: bundle 契约 / 清洗 / 字体探测 / 宿主路由 / 官方令牌接管 / CSS 令牌 / 字号双通路 / 渲染 / 恢复默认");
+/* ── ⑧ 预览区：添加 / 复用 / 删除「我的字体」 ─────────────────────────── */
+assert.equal(internals.sanitizeFamilyName('  "LXGW WenKai",  \\ '), "LXGW WenKai", "家族名清洗要吃掉引号逗号反斜杠");
+assert.equal(internals.sanitizeFamilyName("</style><b>x</b>"), "x", "家族名清洗要吃掉标签");
+assert.equal(internals.sanitizeFamilyName("   "), "", "空名字要返回空串");
+assert.ok(internals.sanitizeFamilyName("a".repeat(200)).length <= 80, "家族名要限长");
+
+assert.equal(
+  internals.stackForFamily({ name: "JetBrains Mono", alias: "" }, "code"),
+  '"JetBrains Mono", ui-monospace, monospace',
+  "代码角色拼栈要挂等宽兜底"
+);
+assert.equal(
+  internals.stackForFamily({ name: "霞鹜文楷", alias: "LXGW WenKai" }, "text"),
+  '"霞鹜文楷", "LXGW WenKai", "Microsoft YaHei", sans-serif',
+  "别名要跟在主名后面，再加中文兜底"
+);
+assert.equal(internals.stackForFamily({ name: "Inter", alias: "inter" }, "text").split(", ").length, 3, "别名与主名同名时不要重复");
+
+const patchForText = internals.customFontPatch(
+  { text: "", code: "", custom: [] },
+  { name: "LXGW WenKai", alias: "霞鹜文楷" },
+  "text"
+);
+assert.equal(patchForText.custom.length, 1, "补丁里要带上更新后的清单");
+assert.ok(String(patchForText.text).includes("LXGW WenKai"), "补丁要把字体套到正文");
+assert.equal(patchForText.code, undefined, "只想改正文时不要碰代码字段");
+const patchForCode = internals.customFontPatch({ custom: [] }, { name: "JetBrains Mono" }, "code");
+assert.ok(String(patchForCode.code).includes("ui-monospace"), "代码角色补丁要挂等宽兜底");
+
+let customList = internals.normalizeCustomList(null);
+assert.equal(customList.length, 0, "空存储解析成空清单");
+customList = internals.addCustomFont(customList, { name: "  Inter  ", alias: "Inter" });
+assert.equal(customList.map((item) => item.name).join("|"), "Inter", "名字要清洗掉多余空格");
+assert.equal(customList[0].alias, "", "别名与主名相同就丢掉");
+customList = internals.addCustomFont(customList, { name: "inter", alias: "" });
+assert.equal(customList.length, 1, "同名（忽略大小写）要覆盖而不是重复");
+customList = internals.addCustomFont(customList, { name: "JetBrains Mono", alias: "JetBrainsMono" });
+assert.equal(customList.map((item) => item.name).join("|"), "JetBrains Mono|Inter", "新加的排最前面");
+for (let i = 0; i < 40; i += 1) customList = internals.addCustomFont(customList, { name: "F" + i });
+assert.equal(customList.length, internals.maxCustomFonts, "清单条数要有上限");
+assert.equal(
+  internals.dropCustomFont(customList, "f20").length,
+  internals.maxCustomFonts - 1,
+  "删除忽略大小写"
+);
+
+// 换一个：提交 → 落盘 → 重新加载 bundle 能读回来
+internals.store.commit({ custom: [{ name: "Inter", alias: "" }, { name: "JetBrains Mono" }] });
+assert.equal(JSON.parse(storage.get(internals.storageKey)).custom.length, 2, "「我的字体」要写进 localStorage");
+const reloadSandbox = {
+  window: {
+    __ModuleLoader__: {
+      load: (options) => {
+        reloadCaptured = options;
+      }
+    },
+    localStorage
+  },
+  document,
+  navigator: {},
+  console
+};
+let reloadCaptured = null;
+vm.createContext(reloadSandbox);
+vm.runInContext(source, reloadSandbox, { filename: "client-reload.js" });
+assert.equal(
+  reloadCaptured.factory(requireStub).__internals.store.state.custom.length,
+  2,
+  "重新加载后「我的字体」要读得回来"
+);
+
+// 恢复默认只还官方字体，用户的清单要留着
+internals.store.reset();
+assert.equal(internals.store.state.text, "", "恢复默认要清掉字体");
+assert.equal(internals.store.state.custom.length, 2, "恢复默认不清「我的字体」");
+
+// 预览区渲染：添加入口 + 胶囊 + 点胶囊套用
+ownerInternals.store.state = {
+  text: "",
+  code: "",
+  sizes: { text: null, code: null, terminal: null },
+  custom: [{ name: "JetBrains Mono", alias: "" }]
+};
+const customTree = renderTree(registered.Component);
+const customText = collectText(customTree).join(" | ");
+assert.ok(customText.includes("预览"), "预览块要有标题");
+assert.ok(customText.includes("＋ 添加自定义字体"), "预览区要有添加入口");
+assert.ok(customText.includes("我的字体"), "「我的字体」区要出现");
+assert.ok(customText.includes("JetBrains Mono"), "已加的字体要列出来");
+
+const chip = findNode(
+  customTree,
+  (node) => node.type === "button" && collectText(node).join("") === "JetBrains Mono"
+);
+assert.ok(chip, "「我的字体」里要有可点的胶囊");
+assert.equal(typeof chip.props.onClick, "function");
+chip.props.onClick();
+assert.ok(
+  String(ownerInternals.store.state.text).includes("JetBrains Mono"),
+  "点胶囊应当把这条字体套到当前角色"
+);
+assert.ok(String(styleNode().textContent).includes("JetBrains Mono"), "套用后 CSS 令牌要跟着改");
+
+console.log(
+  "PASS  dsh-font-studio smoke: bundle 契约 / 清洗 / 字体探测 / 我的字体（增删持久化） / 宿主路由 / 官方令牌接管 / CSS 令牌 / 字号双通路 / 渲染 / 恢复默认"
+);
