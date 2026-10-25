@@ -1,6 +1,6 @@
 {
   "name": "dsh-font-studio",
-  "version": "1.1.0",
+  "version": "1.2.0-dev",
   "private": true,
   "description": "DSH 字体工坊：把界面正文/代码字体、字号换成本地字体，预设画廊 + 自定义字体栈 + 我的字体（预览区添加）+ 实时预览 / A font studio for DeepSeek Harness",
   "license": "MIT",

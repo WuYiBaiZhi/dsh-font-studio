@@ -238,6 +238,18 @@ function findNode(node, predicate) {
   return kids ? findNode(kids, predicate) : null;
 }
 
+function findAll(node, predicate, out = []) {
+  if (node == null || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const child of node) findAll(child, predicate, out);
+    return out;
+  }
+  if (predicate(node)) out.push(node);
+  const kids = node.children || (node.props && node.props.children);
+  if (kids) findAll(kids, predicate, out);
+  return out;
+}
+
 const scanButton = findNode(tree, (node) => node.type === "button" && collectText(node).join("").includes("扫描"));
 assert.ok(scanButton, "界面上必须有「扫描字体」按钮");
 assert.equal(typeof scanButton.props.onClick, "function");
@@ -491,22 +503,61 @@ ownerInternals.store.state = {
 const customTree = renderTree(registered.Component);
 const customText = collectText(customTree).join(" | ");
 assert.ok(customText.includes("预览"), "预览块要有标题");
-assert.ok(customText.includes("＋ 添加自定义字体"), "预览区要有添加入口");
-assert.ok(customText.includes("我的字体"), "「我的字体」区要出现");
 assert.ok(customText.includes("JetBrains Mono"), "已加的字体要列出来");
 
-const chip = findNode(
-  customTree,
-  (node) => node.type === "button" && collectText(node).join("") === "JetBrains Mono"
+const grid = findNode(customTree, (node) => node.props && node.props.className === "dshfs-grid");
+assert.ok(grid, "要有预设卡片墙");
+const addCard = findNode(
+  grid,
+  (node) => typeof (node.props && node.props.className) === "string" &&
+    node.props.className.indexOf("dshfs-card--add") !== -1
 );
-assert.ok(chip, "「我的字体」里要有可点的胶囊");
-assert.equal(typeof chip.props.onClick, "function");
-chip.props.onClick();
+assert.ok(addCard, "卡片墙末尾要有「＋ 添加字体」卡片");
+assert.equal(typeof addCard.props.onClick, "function");
+assert.ok(collectText(addCard).join("").includes("＋ 添加字体"), "添加卡片要有自己的文案");
+
+const gridText = collectText(grid).join(" | ");
+assert.ok(gridText.trim().endsWith("＋ 添加字体"), "添加卡片要排在卡片墙最后一张");
+
+const mineCards = findAll(
+  grid,
+  (node) => typeof (node.props && node.props.className) === "string" &&
+    /(^|\s)dshfs-mine(\s|$)/.test(node.props.className)
+);
+assert.equal(mineCards.length, 1, "「我的字体」的每条都要在卡片墙里占一张卡");
+const mineCard = mineCards[0];
+assert.ok(
+  String(mineCard.props.className).includes("dshfs-card"),
+  "「我的字体」的卡要和预设卡片同一个 class，尺寸天然一致"
+);
+assert.ok(
+  gridText.indexOf("JetBrains Mono") < gridText.indexOf("＋ 添加字体"),
+  "「我的字体」卡片要排在「＋ 添加字体」卡片前面"
+);
+assert.equal(typeof mineCard.props.onClick, "function");
+assert.ok(
+  collectText(mineCard).join(" | ").includes("Aa 字体 123"),
+  "卡片留一行字体样品，和预设卡片同排版"
+);
+const mineSample = findAll(
+  mineCard,
+  (node) => node.props && node.props.className === "dshfs-cardSample"
+)[0];
+assert.ok(
+  String(mineSample.props.style && mineSample.props.style.fontFamily).includes("JetBrains Mono"),
+  "样品那行要用它自己的字体渲染"
+);
+
+mineCard.props.onClick();
 assert.ok(
   String(ownerInternals.store.state.text).includes("JetBrains Mono"),
-  "点胶囊应当把这条字体套到当前角色"
+  "点卡片应当把这条字体套到当前角色"
 );
 assert.ok(String(styleNode().textContent).includes("JetBrains Mono"), "套用后 CSS 令牌要跟着改");
+
+const mineX = findAll(mineCard, (node) => node.props && node.props.className === "dshfs-mineX")[0];
+assert.ok(mineX, "每张「我的字体」卡右上角要有 × 移除");
+assert.equal(typeof mineX.props.onClick, "function");
 
 console.log(
   "PASS  dsh-font-studio smoke: bundle 契约 / 清洗 / 字体探测 / 我的字体（增删持久化） / 宿主路由 / 官方令牌接管 / CSS 令牌 / 字号双通路 / 渲染 / 恢复默认"
